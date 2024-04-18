@@ -1,0 +1,122 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <time.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+const char* ssid = "SSID";
+const char* password = "SSID_Password";
+
+unsigned long previousMillis = 0;
+const long interval = 1000; // Update interval in milliseconds (1 second)
+unsigned long countdownTimer = 0; // Countdown timer in seconds
+unsigned long remainingDays = 0; // Remaining days
+unsigned long remainingHours = 0; // Remaining hours
+unsigned long remainingMinutes = 0; // Remaining minutes
+unsigned long remainingSeconds = 0; // Remaining seconds
+int blockHeight = 0; // Initial block height
+int remainingBlocks = 0; // Remaining blocks until next halving
+int previousBlockHeight = 0; // Previous block height
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  // Initialize OLED display
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;); // Don't proceed, loop forever
+  }
+
+  // Connect to Wi-Fi
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+
+  // Check if it's time to update OLED display
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+
+    // Fetch block height from Blockchain.com API
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      http.begin("https://blockchain.info/q/getblockcount");
+      int httpCode = http.GET();
+      if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK) {
+          String payload = http.getString();
+          blockHeight = payload.toInt();
+          Serial.println("Block Height: " + payload);
+
+          // Check if block height has changed
+          if (blockHeight != previousBlockHeight) {
+            // Calculate remaining blocks until next halving
+            remainingBlocks = 210000 - (blockHeight % 210000); // Assuming next halving at every 210000 blocks
+            Serial.println("Remaining Blocks Until Next Halving: " + String(remainingBlocks));
+
+            // Calculate remaining time until next halving in seconds
+            countdownTimer = remainingBlocks * 600; // Assuming 1 block every 10 minutes (600 seconds)
+            Serial.println("Seconds Until Next Halving: " + String(countdownTimer));
+
+            // Update previous block height
+            previousBlockHeight = blockHeight;
+          }
+        } else {
+          Serial.println("Error on HTTP request");
+        }
+      } else {
+        Serial.println("Error getting data from API");
+      }
+      http.end();
+    }
+
+    // Decrease countdown timer by 1 second
+    if (countdownTimer > 0) {
+      countdownTimer--;
+    }
+
+    // Calculate remaining time in days, hours, minutes, and seconds
+    remainingDays = countdownTimer / (24 * 3600);
+    remainingHours = (countdownTimer % (24 * 3600)) / 3600;
+    remainingMinutes = (countdownTimer % 3600) / 60;
+    remainingSeconds = countdownTimer % 60;
+
+    // Display information on OLED
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Block Height:");
+    display.println(blockHeight);
+    display.println("Remaining Blocks:");
+    display.println(remainingBlocks);
+    display.println("Remaining Time:");
+    display.println(String(remainingDays) + "d " + String(remainingHours) + "h " + String(remainingMinutes) + "m " + String(remainingSeconds) + "s");
+    display.display();
+
+    // Print debug information to serial monitor
+    Serial.println("Block Height: " + String(blockHeight));
+    Serial.println("Remaining Blocks: " + String(remainingBlocks));
+    Serial.println("Remaining Time: " + String(remainingDays) + "d " + String(remainingHours) + "h " + String(remainingMinutes) + "m " + String(remainingSeconds) + "s");
+  }
+}
